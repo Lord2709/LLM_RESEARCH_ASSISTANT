@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+doc1_extracted.md
+doc1_cleaned_test.md
+test.ipynb
