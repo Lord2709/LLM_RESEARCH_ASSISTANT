@@ -7,3 +7,4 @@ doc1_cleaned_test.md
 test.ipynb
 data/chroma_db/
 data/bm25_index.pkl
+.env
