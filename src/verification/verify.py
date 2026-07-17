@@ -86,11 +86,13 @@ def judge_claim(claim: str, evidence_text: str, client: Anthropic) -> dict:
         return {"verdict": "unknown", "reason": "Judge response could not be parsed."}
 
 
-def verify_answer(answer_text: str, citation_map: dict[int, dict]) -> list[dict]:
+def verify_answer(answer_text: str, citation_map: dict[int, dict], client: Anthropic) -> list[dict]:
     """Split the answer into sentences; for each sentence carrying a citation,
     verify it against the evidence text for that citation. Sentences with no
-    citation are skipped, since there's nothing to check them against."""
-    client = get_anthropic_client()
+    citation are skipped, since there's nothing to check them against.
+    Takes client as a parameter (rather than instantiating internally) so
+    callers that already hold a long-lived client, like the API server, can
+    reuse it instead of constructing a new one per request."""
     sentences = split_into_sentences(answer_text)
 
     results = []
@@ -126,7 +128,8 @@ def verify_query(query: str) -> dict:
     needs the un-filtered citation_map, not the display-only references list)."""
     answer_text, citation_map = answer_query(query)
     response = format_response(answer_text, citation_map)
-    response["verification"] = verify_answer(answer_text, citation_map)
+    client = get_anthropic_client()
+    response["verification"] = verify_answer(answer_text, citation_map, client)
     return response
 
 

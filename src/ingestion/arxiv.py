@@ -16,17 +16,30 @@ ARXIV_API_URL = "http://export.arxiv.org/api/query"
 PDF_STORAGE_DIR = Path("data/raw_pdfs")
 
 
-def search_arxiv(query: str, max_results: int = 50) -> list[feedparser.FeedParserDict]:
-    """Query arXiv API, return parsed feed entries (one per paper)."""
+def search_arxiv(query: str, max_results: int = 50, retries: int = 3) -> list[feedparser.FeedParserDict]:
+    """Query arXiv API, return parsed feed entries (one per paper). arXiv's
+    export API can be genuinely slow for broader queries, so this retries a
+    few times with a longer timeout before giving up, rather than failing on
+    the first transient hiccup."""
     params = {
         "search_query": query,
         "start": 0,
         "max_results": max_results,
     }
-    response = requests.get(ARXIV_API_URL, params=params, timeout=10)
-    response.raise_for_status()
-    feed = feedparser.parse(response.content)
-    return feed.entries
+
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.get(ARXIV_API_URL, params=params, timeout=30)
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            return feed.entries
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            logger.warning(f"arXiv search attempt {attempt}/{retries} failed for query {query!r}: {e}")
+            time.sleep(5)
+
+    raise last_error
 
 
 
@@ -155,9 +168,17 @@ def ingest_arxiv_papers(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    # entries = search_arxiv("all:LLM", max_results=1)
-    # entry = entries[0]
-    # print(entry.keys())
-    # print(entry)
 
-    docs = ingest_arxiv_papers("all:LLM", max_results=3)
+    queries = [
+        'all:"large language models"',
+        'all:"retrieval augmented generation"',
+        'all:"agentic AI"',
+    ]
+
+    for search_query in queries:
+        try:
+            docs = ingest_arxiv_papers(search_query, max_results=80)
+            print(f"{search_query}: {len(docs)} new/updated documents")
+        except Exception as e:
+            logger.error(f"Query {search_query!r} failed entirely: {e}")
+            continue

@@ -7,4 +7,8 @@ doc1_cleaned_test.md
 test.ipynb
 data/chroma_db/
 data/bm25_index.pkl
+data/logs/
+data/raw_documents.jsonl
+data/cleaned_documents.jsonl
+data/chunks.jsonl
 .env
