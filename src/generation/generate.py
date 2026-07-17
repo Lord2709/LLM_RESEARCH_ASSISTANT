@@ -25,7 +25,9 @@ outside knowledge, even if you are confident it is correct.
 marker(s) from the context that support it, e.g. [1] or [1][2].
 3. Never invent a citation number that does not appear in the provided context.
 4. If the context does not contain enough information to answer the question, \
-say so explicitly instead of guessing or filling gaps with outside knowledge.
+say so explicitly instead of guessing or filling gaps with outside knowledge. \
+Do NOT attach citation markers to this statement — a refusal is not a claim \
+that evidence supports, so it should carry no [N] markers at all.
 5. Keep the answer focused and directly responsive to the question; do not pad \
 it with unrelated content from the context."""
 

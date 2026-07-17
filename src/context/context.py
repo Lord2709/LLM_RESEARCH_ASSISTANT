@@ -2,9 +2,15 @@ import logging
 from pathlib import Path
 
 from src.embedding.embed import load_chunks
+from src.chunking.chunk import count_tokens
 from src.schemas import Chunk
 
 logger = logging.getLogger(__name__)
+
+# Keeps a single request comfortably under Groq's free-tier 12K TPM cap
+# (leaving headroom for the system prompt, question, and output tokens) while
+# also bounding cost/context-dilution regardless of which provider is used.
+MAX_CONTEXT_TOKENS = 6000
 
 
 def get_chunks_by_id(chunk_ids: list[str], chunks_path: Path = Path("data/chunks.jsonl")) -> dict[str, Chunk]:
@@ -12,6 +18,37 @@ def get_chunks_by_id(chunk_ids: list[str], chunks_path: Path = Path("data/chunks
     all_chunks = load_chunks(chunks_path)
     chunks_by_id = {chunk.id: chunk for chunk in all_chunks}
     return {chunk_id: chunks_by_id[chunk_id] for chunk_id in chunk_ids if chunk_id in chunks_by_id}
+
+
+def truncate_to_token_budget(
+    chunk_ids: list[str], chunks_by_id: dict[str, Chunk], max_tokens: int = MAX_CONTEXT_TOKENS
+) -> list[str]:
+    """Keep chunks in order (best-first, since chunk_ids arrives already
+    reranked) until the token budget is exhausted. Always keeps at least the
+    first chunk even if it alone exceeds the budget, so a single highly
+    relevant match is never dropped entirely just because it's large."""
+    kept_ids: list[str] = []
+    running_total = 0
+
+    for chunk_id in chunk_ids:
+        chunk = chunks_by_id.get(chunk_id)
+        if chunk is None:
+            continue
+
+        token_count = count_tokens(chunk.chunk_text)
+        if kept_ids and running_total + token_count > max_tokens:
+            break
+
+        kept_ids.append(chunk_id)
+        running_total += token_count
+
+    if len(kept_ids) < len(chunk_ids):
+        logger.info(
+            f"Context truncated to fit {max_tokens}-token budget: "
+            f"kept {len(kept_ids)} of {len(chunk_ids)} chunks (~{running_total} tokens)"
+        )
+
+    return kept_ids
 
 
 def build_citation_map(chunk_ids: list[str], chunks_by_id: dict[str, Chunk]) -> dict[int, dict]:
@@ -63,14 +100,18 @@ def build_context_string(
     return "\n\n".join(sections)
 
 
-def build_context(chunk_ids: list[str]) -> tuple[str, dict[int, dict]]:
-    """Orchestrator: given reranked chunk_ids (best first), return the final
-    context string to send to the LLM plus the citation map ([N] -> title,
-    source_url, contributing chunk_ids) needed for later citation generation
-    and verification."""
+def build_context(chunk_ids: list[str], max_tokens: int = MAX_CONTEXT_TOKENS) -> tuple[str, dict[int, dict]]:
+    """Orchestrator: given reranked chunk_ids (best first), truncate to a
+    token budget, then return the final context string to send to the LLM
+    plus the citation map ([N] -> title, source_url, contributing chunk_ids).
+    Truncating before building the citation map keeps both in sync with
+    what's actually sent to the LLM -- no citation numbers referencing
+    chunks that got dropped for budget reasons."""
     chunks_by_id = get_chunks_by_id(chunk_ids)
-    citation_map = build_citation_map(chunk_ids, chunks_by_id)
-    context_string = build_context_string(chunk_ids, chunks_by_id, citation_map)
+    truncated_ids = truncate_to_token_budget(chunk_ids, chunks_by_id, max_tokens)
+
+    citation_map = build_citation_map(truncated_ids, chunks_by_id)
+    context_string = build_context_string(truncated_ids, chunks_by_id, citation_map)
     return context_string, citation_map
 
 

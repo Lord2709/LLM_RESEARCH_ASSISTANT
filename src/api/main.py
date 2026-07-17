@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from src.embedding.embed import get_embedding_model, get_chroma_collection
@@ -86,10 +86,26 @@ def query(request: QueryRequest) -> QueryResponse:
     logger.info(f"Reranked down to top {len(final_chunk_ids)} chunks")
 
     context_string, citation_map = build_context(final_chunk_ids)
-    answer_text = generate_answer(request.query, context_string, app.state.groq_client)
+
+    try:
+        answer_text = generate_answer(request.query, context_string, app.state.groq_client)
+    except Exception as e:
+        logger.error(f"Answer generation failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="The answer generation service is temporarily unavailable (rate limited or down). Please try again shortly.",
+        )
 
     response = format_response(answer_text, citation_map)
-    response["verification"] = verify_answer(answer_text, citation_map, app.state.anthropic_client)
+
+    try:
+        response["verification"] = verify_answer(answer_text, citation_map, app.state.anthropic_client)
+    except Exception as e:
+        logger.error(f"Citation verification failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="The citation verification service is temporarily unavailable (rate limited or down). Please try again shortly.",
+        )
 
     verdict_counts: dict[str, int] = {}
     for item in response["verification"]:

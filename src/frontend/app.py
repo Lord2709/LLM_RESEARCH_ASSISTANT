@@ -14,9 +14,19 @@ VERDICT_STYLES = {
 
 
 def query_backend(query: str) -> dict:
-    """Call the FastAPI /query endpoint and return the parsed JSON response."""
+    """Call the FastAPI /query endpoint and return the parsed JSON response.
+    Raises requests.exceptions.RequestException with the backend's actual
+    `detail` message (e.g. "rate limited, try again shortly") rather than a
+    generic HTTP status line, if the backend returned one."""
     response = requests.post(API_URL, json={"query": query}, timeout=120)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = None
+        raise requests.exceptions.RequestException(detail or str(e)) from e
     return response.json()
 
 
